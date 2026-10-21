@@ -107,10 +107,10 @@ class EnqueuerAckLossTest {
             RabbitMQMailQueueConfiguration.builder().mailQueuePublishConfirmEnabled(true).build(),
             Clock.systemUTC());
 
-        assertThatThrownBy(() -> enqueuer.enQueue(defaultMail().build()).block(Duration.ofSeconds(10)))
+        assertThatThrownBy(() -> enqueuer.enQueue(defaultMail().name("accepted-with-lost-ack").build()).block(Duration.ofSeconds(10)))
             .hasMessageContaining("publish confirmation lost");
-        assertThat(accepted).hasValue(true);
-        assertThat(stored).hasValue(true);
+        assertThat(accepted.get()).isTrue();
+        assertThat(stored.get()).isTrue();
         verify(view, never()).delete(any());
 
         // The reference is really present in RabbitMQ. In Cassandra-backed

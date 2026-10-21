@@ -28,7 +28,9 @@ jobs:
         run: |
           set -euo pipefail
           file=server/queue/queue-rabbitmq/src/main/java/org/apache/james/queue/rabbitmq/Enqueuer.java
-          git show 07c9ed929d9ebb91988ad35a8fa33bb25a1fa03a:"$file" > "$file"
+          git fetch origin audit/base-james-07c9ed9 --depth=1
+          test "$(git rev-parse FETCH_HEAD)" = '07c9ed929d9ebb91988ad35a8fa33bb25a1fa03a'
+          git show FETCH_HEAD:"$file" > "$file"
           set +e
           mvn -B -ntp -pl server/queue/queue-rabbitmq -am \
             -Dtest=EnqueuerAckLossTest \

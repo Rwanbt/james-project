@@ -46,7 +46,6 @@ import com.github.fge.lambdas.Throwing;
 import com.google.common.collect.ImmutableMap;
 import com.rabbitmq.client.AMQP;
 
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.rabbitmq.OutboundMessage;
@@ -81,11 +80,15 @@ class Enqueuer {
             .map(partIds -> new MailReference(enqueueId, mail, partIds))
             .flatMap(Throwing.<MailReference, Mono<Void>>function(mailReference -> {
                 EnqueuedItem enqueuedItem = toEnqueuedItems(mailReference);
-                return Flux.mergeDelayError(2,
-                        mailQueueView.storeMail(enqueuedItem),
-                        publishReferenceToRabbit(mailReference))
-                        .then()
-                        .onErrorResume(cleanupMailQueueView(enqueueId, mailReference));
+                // A publish may have reached RabbitMQ even when its ACK is lost.
+                // Prepare the browse entry before publishing and restrict cleanup
+                // to failures that precede ANY attempt to publish a reference.
+                // Otherwise deleting the view also deletes the MIME blobs and
+                // an already accepted RabbitMQ reference becomes undeliverable.
+                return mailQueueView.storeMail(enqueuedItem)
+                    .onErrorResume(cleanupMailQueueView(enqueueId, mailReference))
+                    .then(Mono.just(mailReference))
+                    .flatMap(Throwing.<MailReference, Mono<Void>>function(this::publishReferenceToRabbit).sneakyThrow());
             }).sneakyThrow())
             .thenEmpty(Mono.fromRunnable(enqueueMetric::increment));
     }

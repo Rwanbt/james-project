@@ -1,0 +1,60 @@
+name: RabbitMQ Enqueuer ACK loss
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rabbitmq-enqueuer-ack-loss.yml'
+      - 'server/queue/queue-rabbitmq/src/main/java/org/apache/james/queue/rabbitmq/Enqueuer.java'
+      - 'server/queue/queue-rabbitmq/src/test/java/org/apache/james/queue/rabbitmq/EnqueuerAckLossTest.java'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ack-loss:
+    name: RabbitMQ publish ACK loss (RED then GREEN)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Disable incompatible build telemetry extension
+        run: mv .mvn/extensions.xml "$RUNNER_TEMP/james-maven-extensions.xml"
+      - name: Demonstrate regression on pinned Apache James baseline (RED)
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=server/queue/queue-rabbitmq/src/main/java/org/apache/james/queue/rabbitmq/Enqueuer.java
+          git fetch origin audit/base-james-07c9ed9 --depth=1
+          test "$(git rev-parse FETCH_HEAD)" = '07c9ed929d9ebb91988ad35a8fa33bb25a1fa03a'
+          git show FETCH_HEAD:"$file" > "$file"
+          set +e
+          mvn -B -ntp -pl server/queue/queue-rabbitmq -am \
+            -Dtest=EnqueuerAckLossTest \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            -DfailIfNoTests=false -DskipITs test
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Expected failing lost-ACK regression against pinned baseline' >&2
+            exit 1
+          fi
+          report=server/queue/queue-rabbitmq/target/surefire-reports/TEST-org.apache.james.queue.rabbitmq.EnqueuerAckLossTest.xml
+          if [ ! -f "$report" ] || ! grep -q '<failure' "$report"; then
+            echo 'Build/setup failure is not accepted as proof of RED' >&2
+            exit 1
+          fi
+          echo 'RED confirmed: regression assertion fails on original Enqueuer'
+          git show HEAD:"$file" > "$file"
+      - name: Run corrected Enqueuer against real RabbitMQ (GREEN)
+        shell: bash
+        run: |
+          mvn -B -ntp -pl server/queue/queue-rabbitmq -am \
+            -Dtest=EnqueuerAckLossTest \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            -DfailIfNoTests=false -DskipITs test

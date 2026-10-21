@@ -23,6 +23,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Disable incompatible build telemetry extension
+        run: mv .mvn/extensions.xml "$RUNNER_TEMP/james-maven-extensions.xml"
       - name: Demonstrate regression on pinned Apache James baseline (RED)
         shell: bash
         run: |
